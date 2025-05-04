@@ -1,86 +1,15 @@
 from flask import Flask, request, jsonify, render_template
-import sqlite3
 import os
 from datetime import datetime, timedelta
+import psycopg2
 from urllib.parse import urlparse
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
-# 数据库文件路径
-DB_FILE = 'recharge.db'
-
-
-def init_db():
-    """初始化数据库"""
-    conn = get_db()
-    cursor = conn.cursor()
-
-        # 创建用户表，添加钻石余额字段
-        cursor.execute('''
-        CREATE TABLE users (
-            user_id TEXT PRIMARY KEY,
-            username TEXT NOT NULL,
-            password TEXT NOT NULL,
-            phone TEXT,
-            balance REAL DEFAULT 0.00,
-            diamonds INTEGER DEFAULT 0,
-            vip_type TEXT DEFAULT NULL,
-            vip_expire_date TIMESTAMP DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-
-        # 创建充值记录表
-        cursor.execute('''
-        CREATE TABLE recharge_records (
-            record_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            amount REAL NOT NULL,
-            recharge_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            status TEXT DEFAULT 'success',
-            payment_method TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        )
-        ''')
-
-        # 创建商城商品表
-        cursor.execute('''
-        CREATE TABLE shop_items (
-            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            price INTEGER NOT NULL
-        )
-        ''')
-
-        # 创建用户皮肤拥有表
-        cursor.execute('''
-        CREATE TABLE user_skins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            item_id INTEGER NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(user_id),
-            FOREIGN KEY (item_id) REFERENCES shop_items(item_id)
-        )
-        ''')
-
-        # 插入商城商品
-        shop_items = [
-            ('皮肤1', 100),
-            ('皮肤2', 200),
-            ('皮肤3', 300),
-            ('皮肤4', 400),
-            ('皮肤5', 500),
-            ('皮肤6', 600)
-        ]
-        cursor.executemany("INSERT INTO shop_items (name, price) VALUES (?,?)", shop_items)
-
-        conn.commit()
-        conn.close()
-
-# 数据库连接函数
+# 数据库连接配置（Render环境自动获取DATABASE_URL）
 def get_db():
     if os.environ.get('RENDER'):
-        # Render环境使用PostgreSQL
+        # Render PostgreSQL 连接
         db_url = os.environ.get('DATABASE_URL')
         conn = psycopg2.connect(db_url)
     else:
@@ -90,6 +19,88 @@ def get_db():
         conn.row_factory = sqlite3.Row
     return conn
 
+def init_db():
+    """初始化数据库（适配PostgreSQL和SQLite）"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # 创建用户表
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            phone TEXT,
+            balance NUMERIC(10, 2) DEFAULT 0.00,
+            diamonds INTEGER DEFAULT 0,
+            vip_type TEXT DEFAULT NULL,
+            vip_expire_date TIMESTAMP DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
+        # 创建充值记录表
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS recharge_records (
+            record_id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            amount NUMERIC(10, 2) NOT NULL,
+            recharge_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status TEXT DEFAULT 'success',
+            payment_method TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+        ''')
+
+        # 创建商城商品表
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shop_items (
+            item_id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            price INTEGER NOT NULL
+        )
+        ''')
+
+        # 创建用户皮肤拥有表
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_skins (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(user_id),
+            FOREIGN KEY (item_id) REFERENCES shop_items(item_id)
+        )
+        ''')
+
+        # 插入初始数据（如果表为空）
+        cursor.execute("SELECT COUNT(*) FROM shop_items")
+        if cursor.fetchone()[0] == 0:
+            shop_items = [
+                ('皮肤1', 100),
+                ('皮肤2', 200),
+                ('皮肤3', 300),
+                ('皮肤4', 400),
+                ('皮肤5', 500),
+                ('皮肤6', 600)
+            ]
+            cursor.executemany(
+                "INSERT INTO shop_items (name, price) VALUES (%s, %s)", 
+                shop_items
+            )
+
+        # 添加测试用户
+        cursor.execute(
+            "INSERT INTO users (user_id, username, password) VALUES (%s, %s, %s) ON CONFLICT (user_id) DO NOTHING",
+            ('2025001', 'teacher', '123456')
+        )
+
+        conn.commit()
+    except Exception as e:
+        print(f"数据库初始化错误: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 # 初始化数据库
 init_db()
