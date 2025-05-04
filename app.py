@@ -2,8 +2,9 @@ from flask import Flask, request, jsonify, render_template
 import sqlite3
 import os
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates', static_folder='static')
 
 # 数据库文件路径
 DB_FILE = 'recharge.db'
@@ -11,9 +12,8 @@ DB_FILE = 'recharge.db'
 
 def init_db():
     """初始化数据库"""
-    if not os.path.exists(DB_FILE):
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
+    conn = get_db()
+    cursor = conn.cursor()
 
         # 创建用户表，添加钻石余额字段
         cursor.execute('''
@@ -77,11 +77,17 @@ def init_db():
         conn.commit()
         conn.close()
 
-
+# 数据库连接函数
 def get_db():
-    """获取数据库连接"""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
+    if os.environ.get('RENDER'):
+        # Render环境使用PostgreSQL
+        db_url = os.environ.get('DATABASE_URL')
+        conn = psycopg2.connect(db_url)
+    else:
+        # 本地开发使用SQLite
+        import sqlite3
+        conn = sqlite3.connect('local.db')
+        conn.row_factory = sqlite3.Row
     return conn
 
 
